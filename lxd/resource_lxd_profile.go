@@ -66,6 +66,13 @@ func resourceLxdProfile() *schema.Resource {
 				Optional: true,
 				Default:  "",
 			},
+
+			"project": {
+				Type:     schema.TypeString,
+				ForceNew: true,
+				Optional: true,
+				Default:  "",
+			},
 		},
 	}
 }
@@ -81,11 +88,16 @@ func resourceLxdProfileCreate(d *schema.ResourceData, meta interface{}) error {
 	description := d.Get("description").(string)
 	config := resourceLxdConfigMap(d.Get("config"))
 	devices := resourceLxdDevices(d.Get("device"))
+	project := d.Get("project").(string)
 
 	req := api.ProfilesPost{Name: name}
 	req.Config = config
 	req.Devices = devices
 	req.Description = description
+
+	if project != "" {
+		server = server.UseProject(project)
+	}
 
 	if err := server.CreateProfile(req); err != nil {
 		return err
@@ -102,6 +114,9 @@ func resourceLxdProfileRead(d *schema.ResourceData, meta interface{}) error {
 	if err != nil {
 		return err
 	}
+
+	project := d.Get("project").(string)
+	server = server.UseProject(project)
 
 	name := d.Id()
 
@@ -138,8 +153,54 @@ func resourceLxdProfileUpdate(d *schema.ResourceData, meta interface{}) error {
 
 	name := d.Id()
 
+	ioldProject, inewProject := d.GetChange("project")
+	oldProject := ioldProject.(string)
+	newProject := inewProject.(string)
+
 	var changed bool
 
+	if d.HasChange("project") {
+		// Copy profile to new project if not yet exists in new project and
+		// delete from old project if is not being used
+		profile, _, err := server.UseProject(oldProject).GetProfile(name)
+		if err != nil {
+			return err
+		}
+
+		profileNames, err := server.UseProject(newProject).GetProfileNames()
+		if err != nil {
+			return err
+		}
+
+		profileExists := false
+		for _, item := range profileNames {
+			if item == name {
+				profileExists = true
+				break
+			}
+		}
+
+		if !profileExists {
+			err = server.UseProject(newProject).CreateProfile(
+				api.ProfilesPost{
+					ProfilePut: profile.ProfilePut,
+					Name:       name,
+				},
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		if len(profile.UsedBy) == 0 {
+			// we can delete old profile because is not being used
+			if err = server.UseProject(oldProject).DeleteProfile(name); err != nil {
+				return err
+			}
+		}
+	}
+
+	server = server.UseProject(newProject)
 	profile, etag, err := server.GetProfile(name)
 	if err != nil {
 		return err
@@ -201,8 +262,9 @@ func resourceLxdProfileDelete(d *schema.ResourceData, meta interface{}) (err err
 	}
 
 	name := d.Id()
+	project := d.Get("project").(string)
 
-	return server.DeleteProfile(name)
+	return server.UseProject(project).DeleteProfile(name)
 }
 
 func resourceLxdProfileExists(d *schema.ResourceData, meta interface{}) (exists bool, err error) {
@@ -213,10 +275,11 @@ func resourceLxdProfileExists(d *schema.ResourceData, meta interface{}) (exists 
 	}
 
 	name := d.Id()
+	project := d.Get("project").(string)
 
 	exists = false
 
-	profile, _, err := server.GetProfile(name)
+	profile, _, err := server.UseProject(project).GetProfile(name)
 	if err == nil && profile != nil {
 		exists = true
 	}
@@ -237,12 +300,13 @@ func resourceLxdProfileImport(d *schema.ResourceData, meta interface{}) ([]*sche
 		d.Set("remote", remote)
 	}
 
+	project := d.Get("project").(string)
 	server, err := p.GetInstanceServer(p.selectRemote(d))
 	if err != nil {
 		return nil, err
 	}
 
-	profile, _, err := server.GetProfile(name)
+	profile, _, err := server.UseProject(project).GetProfile(name)
 	if err != nil {
 		return nil, err
 	}

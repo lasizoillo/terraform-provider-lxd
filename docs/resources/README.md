@@ -23,3 +23,7 @@
 * [`lxd_storage_pool`](lxd_storage_pool.md)
 * [`lxd_volume`](lxd_volume.md)
 * [`lxd_volume_container_attach`](lxd_volume_container_attach.md) *DEPRECATED*
+
+### Project
+
+* [`lxd_project`](lxd_project.md)

@@ -45,6 +45,9 @@ resource "lxd_container" "test1" {
 
 * `remote` - *Optional* - The remote in which the resource will be created. If
 	it is not provided, the default provider remote is used.
+	
+* `project` - *Optional* - The project in which the resource will be created.
+    If it is not provided, the default project is used.
 
 * `name` - *Required* - Name of the container.
 
